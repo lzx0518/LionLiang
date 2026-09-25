@@ -1,0 +1,20 @@
+# 依赖与构建产物（本项目零依赖、无构建，留在这里以防以后加工具链）
+node_modules/
+dist/
+build/
+*.tgz
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# WorkBuddy 本地数据与发布标记（与项目源码无关，不进仓库）
+.workbuddy/
+.wbapp_*.genie
+
+# 日志
+*.log
+npm-debug.log*

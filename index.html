@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>虚拟化学实验室 · Virtual Lab</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ================= 顶栏 ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-logo" id="brandLogo">⚗</span>
+      <span class="brand-text">
+        <b id="brandTitle">虚拟化学实验室</b>
+        <small id="brandSub">初中化学 · 仿真实验台</small>
+      </span>
+    </div>
+
+    <div class="task-bar">
+      <label for="subjectSelect">学科</label>
+      <select id="subjectSelect">
+        <option value="chem">化学</option>
+        <option value="phys">物理</option>
+      </select>
+      <span class="task-sep"></span>
+      <label for="levelSelect">学段</label>
+      <select id="levelSelect"></select>
+      <span class="task-sep"></span>
+      <label for="taskSelect">实验任务</label>
+      <select id="taskSelect"></select>
+      <button class="btn btn-ghost" id="btnTaskInfo" title="查看任务步骤">任务说明</button>
+      <span class="task-progress" id="taskProgress">自由探索</span>
+    </div>
+
+    <div class="top-actions">
+      <button class="btn btn-ghost" id="btnUndo" title="撤销上一步">撤销</button>
+      <button class="btn btn-ghost" id="btnClear">清空台面</button>
+      <button class="btn btn-ghost" id="btnSave">保存</button>
+      <button class="btn btn-ghost" id="btnLoad">读取</button>
+      <button class="btn btn-primary" id="btnHelp">使用帮助</button>
+    </div>
+  </header>
+
+  <!-- ================= 主体 ================= -->
+  <main class="layout">
+
+    <!-- 左侧：仪器 / 药品架（化学） -->
+    <aside class="shelf" id="shelfChem">
+      <div class="shelf-tabs">
+        <button class="tab active" data-tab="apparatus">仪器架</button>
+        <button class="tab" data-tab="reagent">药品架</button>
+      </div>
+
+      <div class="shelf-body">
+        <div class="shelf-panel" id="panelApparatus"></div>
+        <div class="shelf-panel hidden" id="panelReagent">
+          <div class="search-wrap">
+            <input type="search" id="reagentSearch" placeholder="搜索药品名称 / 化学式…" autocomplete="off" />
+          </div>
+          <div id="reagentGroups"></div>
+        </div>
+      </div>
+
+      <div class="shelf-foot">
+        <span id="shelfTip">点击药品按默认量加入选中的容器；把它拖到容器上（或 Shift + 点击）可指定加入量。</span>
+        <div class="amount-mode" id="amountMode">
+          <span class="am-label">默认加入量</span>
+          <button class="am-btn" data-mode="little">少量</button>
+          <button class="am-btn active" data-mode="normal">适量</button>
+          <button class="am-btn" data-mode="much">大量</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 左侧：物理仿真主题架（物理学科下接管左栏） -->
+    <aside class="shelf hidden" id="phyShelf">
+      <div class="phy-shelf-head">
+        <span class="phy-shelf-ico">🧭</span>
+        <span class="phy-shelf-title">物理仿真</span>
+        <span class="phy-shelf-count" id="phyCount"></span>
+      </div>
+      <div class="shelf-body" id="phyTopics"></div>
+      <div class="shelf-foot">
+        <span id="phyShelfTip">按「力学 / 声学 / 热学 / 光学 / 电学 / 电磁学 / 近代物理」分组；学段下拉框会过滤主题。</span>
+      </div>
+    </aside>
+
+    <!-- 中间：实验台 -->
+    <section class="stage">
+      <div class="stage-head">
+        <div class="stage-title">
+          <h2>实 验 台</h2>
+          <span class="badge" id="modeBadge">自由探索</span>
+        </div>
+        <div class="stage-status">
+          <span id="statusText">台面上还没有仪器</span>
+        </div>
+      </div>
+
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="bench"></canvas>
+        <div class="drop-hint" id="dropHint">把仪器拖到这里，或直接点击左侧仪器架</div>
+        <div class="hover-tip hidden" id="hoverTip"></div>
+        <div class="amount-pop hidden" id="amountPop">
+          <div class="ap-head">
+            <b id="apName">药品</b><em id="apFormula"></em>
+            <span class="ap-target" id="apTarget"></span>
+          </div>
+          <div class="ap-row">
+            <input type="range" id="apRange" min="1" max="20" step="1" value="5" />
+            <output id="apValue">5 mL</output>
+          </div>
+          <div class="ap-quick" id="apQuick"></div>
+          <div class="ap-foot">
+            <button class="btn btn-sm" id="apCancel" type="button">取消</button>
+            <button class="btn btn-sm btn-primary" id="apOk" type="button">加入</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 物理仿真画布（物理学科下接管实验区） -->
+      <div class="canvas-wrap hidden" id="phyWrap">
+        <canvas id="phybench"></canvas>
+        <div class="drop-hint" id="phyHint">从左侧「物理仿真」里选一个主题开始</div>
+      </div>
+
+      <!-- 教材实验流程指引：选中实验后出现在实验区里 -->
+      <div class="guide-bar hidden" id="guideBar">
+        <div class="gb-top">
+          <span class="gb-name" id="gbName">实验</span>
+          <span class="gb-chapter" id="gbChapter"></span>
+          <span class="gb-progress" id="gbProgress">0 / 0</span>
+          <span class="gb-spacer"></span>
+          <button class="gb-btn" id="gbInfo" type="button">实验说明</button>
+          <button class="gb-btn" id="gbCollapse" type="button">收起</button>
+          <button class="gb-btn danger" id="gbExit" type="button">退出实验</button>
+        </div>
+        <div class="gb-rail" id="gbRail"></div>
+        <div class="gb-now" id="gbNow"></div>
+      </div>
+
+      <div class="toolbar" id="toolbar">
+        <button class="tool" data-tool="select" title="选择 / 拖动仪器">
+          <span class="tool-ico">✥</span><span class="tool-txt">选择</span>
+        </button>
+        <button class="tool" data-tool="pour" title="把液体倒入另一个容器">
+          <span class="tool-ico">⇄</span><span class="tool-txt">倾倒</span>
+        </button>
+        <button class="tool" data-tool="stir" title="用玻璃棒搅拌">
+          <span class="tool-ico">⟳</span><span class="tool-txt">搅拌</span>
+        </button>
+        <button class="tool" data-tool="ignite" title="点燃酒精灯或容器中的物质">
+          <span class="tool-ico">🔥</span><span class="tool-txt">点燃</span>
+        </button>
+        <button class="tool" data-tool="power" title="给容器接通电源（电解水）">
+          <span class="tool-ico">⚡</span><span class="tool-txt">通电</span>
+        </button>
+        <button class="tool" data-tool="light" title="用强光照射容器（光照条件下的反应）">
+          <span class="tool-ico">☀</span><span class="tool-txt">光照</span>
+        </button>
+        <button class="tool" data-tool="test" title="用试纸 / 木条检验">
+          <span class="tool-ico">🧪</span><span class="tool-txt">检验</span>
+        </button>
+        <button class="tool" data-tool="connect" title="把仪器连接起来（导管导气 / 分液漏斗加液）">
+          <span class="tool-ico">⌒</span><span class="tool-txt">连接</span>
+        </button>
+        <span class="toolbar-sep"></span>
+        <button class="tool danger" data-tool="empty" title="倒掉容器里的物质">
+          <span class="tool-ico">⤓</span><span class="tool-txt">倒掉</span>
+        </button>
+        <button class="tool danger" data-tool="delete" title="把仪器从台面上拿走">
+          <span class="tool-ico">✕</span><span class="tool-txt">移除</span>
+        </button>
+      </div>
+
+      <!-- 物理仿真控制条（物理学科下接管工具栏位置） -->
+      <div class="toolbar phy-toolbar hidden" id="phyControls"></div>
+    </section>
+
+    <!-- 右侧：信息面板 -->
+    <aside class="inspector">
+      <div class="card insp-card" id="inspCard">
+        <div class="card-head"><h3 id="inspTitle">仪器信息</h3></div>
+        <div class="card-body" id="inspBody">
+          <p class="muted">还没有选中任何仪器。点击实验台上的仪器查看它的状态。</p>
+        </div>
+      </div>
+
+      <div class="card log-card">
+        <div class="card-head">
+          <h3 id="logTitle">实验记录</h3>
+          <button class="mini" id="btnClearLog">清空</button>
+        </div>
+        <div class="log-list" id="logList">
+          <p class="muted log-empty">实验过程中发生的现象和反应都会记录在这里。</p>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ================= 弹层 ================= -->
+  <div class="modal-mask hidden" id="modalMask">
+    <div class="modal" id="modal">
+      <div class="modal-head">
+        <h3 id="modalTitle">提示</h3>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-foot">
+        <button class="btn btn-primary" id="modalOk">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 试剂选择（倾倒 / 滴加时弹出） -->
+  <div class="modal-mask hidden" id="pickerMask">
+    <div class="modal modal-sm" id="picker">
+      <div class="modal-head">
+        <h3 id="pickerTitle">选择试剂</h3>
+        <button class="modal-close" id="pickerClose">✕</button>
+      </div>
+      <div class="modal-body picker-body" id="pickerBody"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+</div>
+
+<!-- ================= 脚本（按依赖顺序） ================= -->
+<script src="js/data/substances.js"></script>
+<script src="js/data/apparatus.js"></script>
+<script src="js/data/reactions.js"></script>
+<!-- 高中化学内容：通过 CHEM.registerXxx 追加，可与初中内容分开显示 -->
+<script src="js/data/substances-senior.js"></script>
+<script src="js/data/reactions-senior.js"></script>
+<!-- 热力学数据与离子方程式（用于焓变 / 平衡常数 / 反应详情） -->
+<script src="js/data/thermo.js"></script>
+<script src="js/data/equations-extra.js"></script>
+<script src="js/data/reactions-extra.js"></script>
+<script src="js/engine/geometry.js"></script>
+<script src="js/engine/effects.js"></script>
+<script src="js/engine/reaction.js"></script>
+<script src="js/engine/world.js"></script>
+<script src="js/render/draw.js"></script>
+<script src="js/experiments/index.js"></script>
+<script src="js/experiments/senior.js"></script>
+<!-- 教材实验库：人教版初中 / 高中经典实验，通过 CHEM.registerExperiments 追加 -->
+<script src="js/experiments/textbook-junior.js"></script>
+<script src="js/experiments/textbook-senior.js"></script>
+<!-- 物理学科模块：与化学引擎平行的独立分支，通过 PHY.registerSim / registerTasks 注册 -->
+<script src="js/physics/core.js"></script>
+<script src="js/physics/sims/mechanics.js"></script>
+<script src="js/physics/sims/circuit.js"></script>
+<script src="js/physics/sims/optics.js"></script>
+<script src="js/physics/sims/energy.js"></script>
+<script src="js/physics/sims/sound.js"></script>
+<script src="js/physics/sims/thermal.js"></script>
+<script src="js/physics/sims/mirror.js"></script>
+<script src="js/physics/sims/force.js"></script>
+<script src="js/physics/sims/pressure.js"></script>
+<script src="js/physics/sims/em.js"></script>
+<script src="js/physics/sims/modern.js"></script>
+<script src="js/physics/tasks-junior.js"></script>
+<script src="js/physics/tasks-senior.js"></script>
+<script src="js/ui/app.js"></script>
+</body>
+</html>
