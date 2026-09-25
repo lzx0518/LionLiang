@@ -1,0 +1,8 @@
+# 部署到 Vercel 时只上传站点本身（约 1.1 MB）。
+# 测试套件、截图、文档与本地工具不是站点运行所需，不上线对外提供。
+#
+# 站点实际依赖：index.html、css/、js/
+test/
+README.md
+serve.mjs
+.gitattributes

@@ -15,6 +15,9 @@ Thumbs.db
 .workbuddy/
 .wbapp_*.genie
 
+# Vercel 本地项目元数据（`vercel link` / `vercel dev` 生成，含账号与项目 ID）
+.vercel/
+
 # 日志
 *.log
 npm-debug.log*
