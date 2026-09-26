@@ -524,17 +524,17 @@
       sim: 'lever',
       chapter: '八年级下册 · 第十二章 简单机械',
       goal: '在杠杆两侧挂钩码使它水平平衡，记录多组动力、动力臂、阻力、阻力臂，归纳 F₁L₁ = F₂L₂。',
-      intro: '每个杠码重 0.5 N，相邻刻度间距 1 格。点击刻度处挂钩码，点击已挂的杠码取下；杠杆水平平衡时自动记录一组数据。',
+      intro: '每个钩码重 0.5 N，相邻刻度间距 1 格。点击刻度处挂钩码，点击已挂的钩码取下；杠杆水平平衡时自动记录一组数据。',
       principle: ['F₁L₁ = F₂L₂', '动力臂 × 动力 = 阻力臂 × 阻力'],
       steps: [
         {
-          text: '在左侧第 2 格挂 2 个杠码',
+          text: '在左侧第 2 格挂 2 个钩码',
           hint: '点击杠杆左侧「2」刻度处两次',
           check: function (s) { return s.hookCount() >= 2 && s.torqueL() > 0; },
           act: function (s) { s.__test.hang(-1, 2, 2); }
         },
         {
-          text: '在右侧第 4 格挂 1 个杠码，使杠杆水平平衡',
+          text: '在右侧第 4 格挂 1 个钩码，使杠杆水平平衡',
           hint: '点击杠杆右侧「4」刻度处',
           check: function (s) { return s.balanced(); },
           act: function (s) { s.__test.hang(1, 4, 1); }
@@ -547,7 +547,7 @@
         },
         {
           text: '换一组数据：左侧第 3 格挂 2 个、右侧第 2 格挂 3 个，再次平衡',
-          hint: '先点「取下全部杠码」，再重新挂',
+          hint: '先点「取下全部钩码」，再重新挂',
           check: function (s) { return s.records().length >= 2 && s.balanced(); },
           act: function (s) {
             s.__test.clear(); s.__test.hang(-1, 3, 2); s.__test.hang(1, 2, 3);

@@ -233,12 +233,18 @@
       var x1 = 1.2, x2 = 2.6;      // 位置 m（导轨 0~4m）
       var v1c = 0, v2c = 0;
       var results = [];            // 每次碰撞记录
-      var PX, trackY;
+      var PX = (env.W - 120) / 4, trackY = env.H * 0.4;
+      var tSince = 0;              // 碰后经过的时间（用于收尾）
+
+      /* 滑块宽度随质量变化（w = 26 + 40m 像素），换算成米就是 w/PX。
+         碰撞应当发生在「两个滑块边缘相碰」的位置，中心距就是两者半宽之和。 */
+      function halfWidthM(mm) { return (26 + mm * 40) / 2 / Math.max(1, PX); }
+      function contactGap() { return halfWidthM(m1) + halfWidthM(m2); }
 
       function reset() {
         x1 = 1.2; x2 = 2.6;
         v1c = v1; v2c = v2;
-        done = false; collided = false;
+        done = false; collided = false; tSince = 0;
       }
       function collide() {
         var pBefore = m1 * v1c + m2 * v2c;
@@ -269,15 +275,23 @@
         if (!running || done) return;
         x1 += v1c * dt;
         x2 += v2c * dt;
-        if (!collided && x2 - x1 <= 0.24) {
-          collide();
+        if (!collided) {
+          /* 判据改成「边缘相碰」（以前写死中心距 0.24 m，
+             质量取大时两滑块在视觉上已经叠在一起了才算碰撞） */
+          if (x2 - x1 <= contactGap()) collide();
+        } else {
+          tSince += dt;
+          /* 碰完让它们再走一段看得清的过程就收尾定住。
+             以前要求"两个滑块都几乎停下"才算结束，可是撞墙是完全弹性反弹、
+             速度永不衰减，于是 done 几乎永远不成立——
+             底部那句「p前 = p后 ✓ 动量守恒」根本没机会显示出来。 */
+          if (tSince > 1.6) { done = true; running = false; }
         }
         /* 撞墙反弹（弹性），防止跑出导轨 */
         if (x1 < 0.15) { x1 = 0.15; v1c = Math.abs(v1c); }
         if (x1 > 3.85) { x1 = 3.85; v1c = -Math.abs(v1c); }
         if (x2 < 0.15) { x2 = 0.15; v2c = Math.abs(v2c); }
         if (x2 > 3.85) { x2 = 3.85; v2c = -Math.abs(v2c); }
-        if (collided && Math.abs(v1c) < 0.01 && Math.abs(v2c) < 0.01) { done = true; running = false; }
       }
       function action(id) {
         if (id === 'run') { reset(); running = true; PHY.log('释放滑块：m₁=' + PHY.fmt(m1, 2) + 'kg v₁=' + PHY.fmt(v1, 2) + 'm/s，m₂=' + PHY.fmt(m2, 2) + 'kg v₂=' + PHY.fmt(v2, 2) + 'm/s（' + (kind === 'elastic' ? '弹性碰撞' : '完全非弹性碰撞') + '）。'); }
@@ -302,26 +316,60 @@
 
       function geom() {
         PX = (env.W - 120) / 4;
-        trackY = env.H * 0.4;
+        /* 轨道只占上半部分，下半张画布留给「碰前 / 碰后」对比面板。
+           以前 trackY = H*0.4 而所有内容都挤在 trackY ± 30 这 60 px 里，
+           660 px 高的画布只用了 10%，下面一大片空白。 */
+        trackY = env.H * 0.32;
         return { PX: PX, trackY: trackY };
       }
       function drawGlider(gg, xm, m, v, colr, label) {
         var px = 60 + xm * PX;
         var w = 26 + m * 40;
+        gg.save();
+        /* 投影，让滑块"坐"在导轨上 */
+        gg.fillStyle = 'rgba(120,140,160,0.28)';
+        PHY.rr(gg, px - w / 2 + 3, trackY - 11, w, 20, 4); gg.fill();
         gg.fillStyle = colr;
-        PHY.rr(gg, px - w / 2, trackY - 16, w, 20, 4); gg.fill();
-        gg.strokeStyle = 'rgba(0,0,0,0.25)'; gg.stroke();
+        PHY.rr(gg, px - w / 2, trackY - 16, w, 22, 4); gg.fill();
+        gg.strokeStyle = 'rgba(0,0,0,0.25)'; gg.lineWidth = 1.2; gg.stroke();
+        /* 遮光板（光门测速时挡光的那片） */
+        gg.fillStyle = 'rgba(255,255,255,0.7)';
+        gg.fillRect(px - 2, trackY - 16, 4, 22);
         gg.fillStyle = '#3d5a72';
-        gg.font = '600 10px ' + FONT;
+        gg.font = '600 11px ' + FONT;
         gg.textAlign = 'center'; gg.textBaseline = 'bottom';
         gg.fillText(label, px, trackY - 22);
         if (Math.abs(v) > 0.005) {
-          PHY.arrow(gg, px, trackY + 14, px + v * 60, trackY + 14, '#e2603c', 2.2, 7);
+          var vx = px + v * 60;
+          PHY.arrow(gg, px, trackY + 26, vx, trackY + 26, '#e2603c', 2.4, 8);
           gg.fillStyle = '#e2603c';
-          gg.font = '600 10px ' + FONT;
+          gg.font = '600 10.5px ' + FONT;
           gg.textAlign = 'center'; gg.textBaseline = 'top';
-          gg.fillText(PHY.fmt(v, 2) + 'm/s', px + v * 60, trackY + 20);
+          gg.fillText(PHY.fmt(v, 2) + ' m/s', (px + vx) / 2, trackY + 32);
         }
+        gg.restore();
+      }
+
+      /* 一行「碰前 / 碰后」对比条 */
+      function compareRow(gg, x, y, w, label, unit, before, after, max, colr) {
+        gg.fillStyle = '#3d5a72'; gg.font = '600 12.5px ' + FONT;
+        gg.textAlign = 'left'; gg.textBaseline = 'middle';
+        gg.fillText(label, x, y + 10);
+        gg.fillStyle = '#8a99a8'; gg.font = '10.5px ' + FONT;
+        gg.textAlign = 'right';
+        gg.fillText('碰前', x + 92, y);
+        gg.fillText('碰后', x + 92, y + 21);
+        gg.fillStyle = '#e6eef5';
+        gg.fillRect(x + 100, y - 6, w, 12);
+        gg.fillRect(x + 100, y + 15, w, 12);
+        gg.fillStyle = '#8a99a8';
+        gg.fillRect(x + 100, y - 6, w * PHY.clamp(before / max, 0, 1), 12);
+        gg.fillStyle = colr;
+        gg.fillRect(x + 100, y + 15, w * PHY.clamp(after / max, 0, 1), 12);
+        gg.fillStyle = '#1a2c3c'; gg.font = '600 11px ' + FONT;
+        gg.textAlign = 'left';
+        gg.fillText(PHY.fmt(before, 3) + ' ' + unit, x + 108 + w, y);
+        gg.fillText(PHY.fmt(after, 3) + ' ' + unit, x + 108 + w, y + 21);
       }
 
       return {
@@ -359,29 +407,58 @@
           bgFill(gg, W, H);
           geom();
           var ty = trackY;
-          gg.fillStyle = '#9aa7b2';
-          gg.fillRect(40, ty + 6, W - 80, 6);
+          /* 气垫导轨：厚底 + 亮面 + 阴影，比原来一条 6px 细线有实体感 */
+          gg.fillStyle = '#8d939b';
+          gg.fillRect(40, ty + 6, W - 80, 12);
           gg.fillStyle = '#e6eef5';
-          gg.fillRect(40, ty + 6, W - 80, 4);
-          /* 光门刻度 */
+          gg.fillRect(40, ty + 6, W - 80, 5);
+          gg.fillStyle = 'rgba(0,0,0,0.10)';
+          gg.fillRect(40, ty + 18, W - 80, 3);
+          /* 刻度与米标 */
           for (var i = 0; i <= 4; i++) {
             var x = 60 + i * PX;
             gg.strokeStyle = 'rgba(138,153,168,0.5)';
-            gg.beginPath(); gg.moveTo(x, ty - 30); gg.lineTo(x, ty + 10); gg.stroke();
+            gg.lineWidth = 1;
+            gg.beginPath(); gg.moveTo(x, ty - 30); gg.lineTo(x, ty + 8); gg.stroke();
             gg.fillStyle = '#8a99a8';
             gg.font = '10px ' + FONT;
             gg.textAlign = 'center'; gg.textBaseline = 'top';
-            gg.fillText(i + 'm', x, ty + 14);
+            gg.fillText(i + 'm', x, ty + 26);
           }
           var run = running;
           drawGlider(gg, run ? x1 : (collided ? x1 : 1.2), m1, run || collided ? v1c : v1, '#1e9fd8', 'm₁=' + PHY.fmt(m1, 2) + 'kg');
           drawGlider(gg, run ? x2 : (collided ? x2 : 2.6), m2, run || collided ? v2c : v2, '#8b6fd8', 'm₂=' + PHY.fmt(m2, 2) + 'kg');
-          if (done && collided) {
-            var r = last();
-            gg.fillStyle = '#2fa96b';
-            gg.font = '700 14px ' + FONT;
-            gg.textAlign = 'center';
-            gg.fillText('p前 = ' + PHY.fmt(r.pB, 3) + ' kg·m/s = p后 = ' + PHY.fmt(r.pA, 3) + ' kg·m/s  ✓ 动量守恒', W / 2, H - 30);
+
+          /* ---- 下半部分：碰前 / 碰后的对比 ---- */
+          var bx = 40, bw = W - 80;
+          var pTop = H * 0.50, pH = H - pTop - 16;
+          PHY.panel(gg, bx, pTop, bw, pH, '碰前 / 碰后对比');
+          var r = last();
+          if (!r) {
+            gg.fillStyle = '#6b7f92'; gg.font = '12.5px ' + FONT;
+            gg.textAlign = 'center'; gg.textBaseline = 'middle';
+            gg.fillText('设置两滑块的质量与速度后点「释放滑块」，碰撞后这里给出动量与动能的对比。',
+              bx + bw / 2, pTop + pH / 2);
+          } else {
+            var rowW = PHY.clamp(bw - 420, 80, 520);
+            compareRow(gg, bx + 18, pTop + 48, rowW, '动量 p', 'kg·m/s', r.pB, r.pA,
+              Math.max(Math.abs(r.pB), Math.abs(r.pA), 1e-9), '#2fa96b');
+            compareRow(gg, bx + 18, pTop + 100, rowW, '动能 Ek', 'J', r.keB, r.keA,
+              Math.max(r.keB, r.keA, 1e-9), '#e2603c');
+            /* 条件与结论 */
+            gg.fillStyle = '#3d5a72'; gg.font = '11.5px ' + FONT;
+            gg.textAlign = 'left'; gg.textBaseline = 'middle';
+            gg.fillText('碰前：m₁ = ' + PHY.fmt(r.m1, 2) + ' kg，v₁ = ' + PHY.fmt(r.v1, 2) +
+              ' m/s；m₂ = ' + PHY.fmt(r.m2, 2) + ' kg，v₂ = ' + PHY.fmt(r.v2, 2) + ' m/s（' +
+              (r.kind === 'elastic' ? '弹性碰撞' : '完全非弹性碰撞') + '）',
+              bx + 18, pTop + 142);
+            var consP = Math.abs(r.pB - r.pA) < 1e-6;
+            gg.fillStyle = consP ? '#2fa96b' : '#e2603c';
+            gg.font = '700 13.5px ' + FONT;
+            gg.textAlign = 'center'; gg.textBaseline = 'bottom';
+            gg.fillText('p前 = ' + PHY.fmt(r.pB, 3) + ' kg·m/s = p后 = ' + PHY.fmt(r.pA, 3) + ' kg·m/s　✓ 动量守恒' +
+              (r.kind === 'elastic' ? '，动能也不变' : '，动能损失最大'),
+              bx + bw / 2, H - 24);
           }
         },
         isCollided: function () { return collided; },

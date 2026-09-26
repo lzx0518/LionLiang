@@ -83,7 +83,7 @@
           } else {
             records.push({ mode: mode, depth: depth, liquid: liquid, face: face, p: pressure() });
             PHY.log('记录第 ' + records.length + ' 组：' + LIQUIDS[liquid].name + ' 中深度 ' + depth + ' cm、探头' +
-              faceName() + ' → p = ' + PHY.fmt(pressure(), 1) + ' Pa（相当于 ' + PHY.fmt(depth, 1) + ' cm 水柱）。', '', 'reaction');
+              faceName() + ' → p = ' + PHY.fmt(pressure(), 1) + ' Pa（相当于 ' + PHY.fmt(waterCol(), 1) + ' cm 水柱）。', '', 'reaction');
           }
           if (mode === 'liquid' && records.length >= 2) {
             var a = records[records.length - 2], b = records[records.length - 1];
@@ -114,6 +114,9 @@
         if (mode !== 'solid') return 0;
         return PHY.clamp(7 * Math.sqrt(pressure() / 1000), 0, 30);
       }
+      /* 压强计读到的"水柱高度差"：把压强折算成水柱 = p /(ρ水·g)。
+         只有水才恰好等于深度；盐水、酒精要按密度折算，不能直接写深度。 */
+      function waterCol() { return pressure() / (1000 * G) * 100; }
 
       function update(dt) { bubbles += dt; }
 
@@ -326,7 +329,7 @@
             out.push('<div><dt>深度 h</dt><dd>' + depth + ' cm</dd></div>');
             out.push('<div><dt>探头朝向</dt><dd>' + faceName() + '</dd></div>');
             out.push('<div><dt>压强 p = ρgh</dt><dd>' + PHY.fmt(pressure(), 1) + ' Pa</dd></div>');
-            out.push('<div><dt>压强计高度差</dt><dd>' + PHY.fmt(pressure() / (1000 * G) * 100, 1) + ' cm 水柱</dd></div>');
+            out.push('<div><dt>压强计高度差</dt><dd>' + PHY.fmt(waterCol(), 1) + ' cm 水柱</dd></div>');
           }
           out.push('</dl>');
           if (records.length) {
@@ -522,66 +525,120 @@
           gg.save();
           gg.fillStyle = '#f6f9fd';
           gg.fillRect(0, 0, W, H);
-          var bx = W * 0.30, by = H * 0.26, bw = Math.min(230, W * 0.3), bh = Math.min(300, H * 0.56);
-          var surfY = by + 24;
+
+          /* ---- 版面与比例尺 ----
+             整张图只用**一个** px/cm 比例尺：物体的边长和它的下沉位移都按它换算。
+             以前边长按 4.2 px/cm 画、位移却按 (bh−40)/12 ≈ 21.7 px/cm 算，
+             两套比例尺差 5 倍——5 cm 的立方体只画 21 px 宽，却每下沉 1 cm 就移动 22 px，
+             看着比它自己的边长还大，比例完全失真。
+             另外容器顶部要留出「h = 0 时物体整个挂在液面以上」的空间，
+             再往下才是 0～12 cm 的浸入行程。 */
+          var DEPTH_MAX = 12;                        /* cm，与「浸入深度」滑块上限一致 */
+          var padX = 18, padTop = 14, padBottom = 34;
+          var pw = Math.min(240, W * 0.30);          /* 右侧数据面板 */
+          var stageW = Math.max(250, W - pw - padX * 3);
+          var scaleW = 74;
+          var scaleH = PHY.clamp(H * 0.17, 76, 112);
+          var by = padTop + scaleH + 40;             /* 容器顶：给弹簧测力计与连线让位 */
+          var bh = Math.max(130, H - by - padBottom);
+          var bw = PHY.clamp(stageW * 0.44, 130, 250);
+          var bx = padX;
+          var sideCm = side();
+          var pxPerCm = (bh - 26) / (sideCm + DEPTH_MAX);
+          var surfY = by + 12 + sideCm * pxPerCm;    /* 液面位置 */
+          var a = sideCm * pxPerCm;                  /* 物体的绘制边长 */
+          var cylW = PHY.clamp(stageW * 0.13, 34, 52);
+          var cylH = Math.min(bh - 44, 150);
+          var cylX = bx + bw + 30, cylY = surfY + 16;
+
           /* 液体容器 */
           gg.fillStyle = 'rgba(255,255,255,0.6)'; gg.strokeStyle = '#8a99a8'; gg.lineWidth = 2;
           PHY.rr(gg, bx, by, bw, bh, 5); gg.fill(); gg.stroke();
           gg.fillStyle = L().color;
           gg.fillRect(bx + 2, surfY, bw - 4, by + bh - surfY - 2);
-          /* 溢出口 */
+          /* 溢出口 → 量筒 */
           gg.strokeStyle = '#8a99a8'; gg.lineWidth = 2;
           gg.beginPath();
-          gg.moveTo(bx + bw, surfY + 6); gg.lineTo(bx + bw + 26, surfY + 6);
+          gg.moveTo(bx + bw, surfY + 6); gg.lineTo(cylX + 4, surfY + 6);
           gg.stroke();
-          /* 排出的液体 → 量筒 */
-          var cylX = bx + bw + 46, cylY = surfY + 22, cylW = 46, cylH = 132;
-          var fill = PHY.clamp(vSub() / O().V * 0.8, 0, 1);
+          var fill = PHY.clamp(vSub() / O().V * 0.86, 0, 1);
           gg.fillStyle = 'rgba(255,255,255,0.6)'; gg.strokeStyle = '#8a99a8'; gg.lineWidth = 1.8;
           PHY.rr(gg, cylX, cylY, cylW, cylH, 4); gg.fill(); gg.stroke();
           gg.fillStyle = L().color;
           gg.fillRect(cylX + 2, cylY + cylH - cylH * fill, cylW - 4, cylH * fill);
           gg.fillStyle = '#3d5a72'; gg.font = '600 10.5px ' + FONT;
           gg.textAlign = 'center'; gg.textBaseline = 'top';
-          gg.fillText('量筒（收集排开的液体）', cylX + cylW / 2, cylY + cylH + 8);
+          gg.fillText('量筒', cylX + cylW / 2, cylY + cylH + 8);
           gg.fillText('V排 = ' + PHY.fmt(vSub(), 1) + ' cm³', cylX + cylW / 2, cylY + cylH + 24);
 
-          /* 物体 + 弹簧测力计 */
-          var a = side() * 4.2;                 /* 画布上的边长 */
-          var topOfLiquid = surfY;
-          var objY = topOfLiquid + h * (bh - 40) / 12 - a;   /* 底面浸入 h */
+          /* 物体：边长与下沉位移共用同一个比例尺。
+             漂浮时浸入深度由平衡条件 ρ液·g·V排 = G 决定，与滑块无关——
+             所以画出来的位置必须跟算出来的 V排 一致，不能跟着滑块乱动。 */
+          var depthCm = floats() ? vSub() / (sideCm * sideCm) : h;
           var objX = bx + bw * 0.5 - a / 2;
+          var objY = surfY + depthCm * pxPerCm - a;
           gg.fillStyle = O().color; gg.strokeStyle = 'rgba(60,80,100,0.7)'; gg.lineWidth = 1.8;
           PHY.rr(gg, objX, objY, a, a, 3); gg.fill(); gg.stroke();
-          gg.fillStyle = 'rgba(255,255,255,0.8)'; gg.font = '600 10px ' + FONT;
+          gg.save();
+          gg.fillStyle = 'rgba(255,255,255,0.88)';
+          gg.font = '700 ' + PHY.clamp(a * 0.24, 9, 13).toFixed(1) + 'px ' + FONT;
           gg.textAlign = 'center'; gg.textBaseline = 'middle';
           gg.fillText(O().name, objX + a / 2, objY + a / 2);
-          /* 细线 */
+          gg.restore();
+          /* 边长标注：让学生看得出物体实际有多大 */
+          gg.fillStyle = '#6b7f92'; gg.font = '10px ' + FONT;
+          gg.textAlign = 'left'; gg.textBaseline = 'middle';
+          gg.fillText(PHY.fmt(sideCm, 1) + ' cm', objX + a + 7, objY + a / 2);
+          /* 细线：物体顶面 → 弹簧测力计 */
           gg.strokeStyle = '#5d6f7e'; gg.lineWidth = 1.4;
           gg.beginPath();
           gg.moveTo(objX + a / 2, objY);
-          gg.lineTo(objX + a / 2, by - 40);
+          gg.lineTo(objX + a / 2, by - 24);
           gg.stroke();
-          /* 弹簧测力计 */
-          drawScale(gg, bx + bw * 0.5 - 34, by - 148, 68, 108, springRead(), Math.max(1, weight() * 1.6), '弹簧测力计');
+          /* 弹簧测力计：紧贴容器上方，不会像以前那样被画到画布外（y 为负） */
+          drawScale(gg, bx + bw * 0.5 - scaleW / 2, by - 24 - scaleH, scaleW, scaleH,
+            springRead(), Math.max(1, weight() * 1.6, 0.8), '弹簧测力计');
 
-          /* 力的示意 */
-          gg.save();
-          var fx = objX + a + 46, fy = objY + a / 2;
+          /* 浮力示意：画在物体右侧，仍在容器内 */
           if (buoyancy() > 0.005) {
-            PHY.arrow(gg, fx, fy, fx, fy - 18 - buoyancy() * 26, '#2fa96b', 2.2, 8);
-            gg.fillStyle = '#2fa96b'; gg.font = '600 11px ' + FONT;
-            gg.textAlign = 'left'; gg.textBaseline = 'middle';
-            gg.fillText('F浮 = ' + PHY.fmt(buoyancy(), 2) + ' N', fx + 6, fy - 20 - buoyancy() * 26);
+            var flen = 16 + buoyancy() * 22;
+            var fx = Math.min(bx + bw - 26, objX + a + 14);
+            var fy = objY + a / 2;
+            PHY.arrow(gg, fx, fy, fx, fy - flen, '#2fa96b', 2.2, 8);
+            gg.fillStyle = '#2fa96b'; gg.font = '600 10.5px ' + FONT;
+            gg.textAlign = 'center'; gg.textBaseline = 'bottom';
+            gg.fillText('F浮 = ' + PHY.fmt(buoyancy(), 2) + ' N', fx, fy - flen - 3);
           }
+
+          /* 右侧数据面板：把原本空着的右半张画布用起来 */
+          var panelH = Math.min(206, H - padTop - 48);
+          PHY.panel(gg, W - pw - padX, padTop, pw, panelH, '浮力与排开的液体');
+          var rows = [
+            ['物体重力 G', PHY.fmt(weight(), 3) + ' N'],
+            ['测力计读数 F拉', PHY.fmt(springRead(), 3) + ' N'],
+            ['浮力 F浮 = G − F拉', PHY.fmt(buoyancy(), 3) + ' N'],
+            ['排开液体体积 V排', PHY.fmt(vSub(), 1) + ' cm³'],
+            ['排开液体重力 G排', PHY.fmt(displaced(), 3) + ' N'],
+            ['状态', floats() ? '漂浮' : (immersed() ? '完全浸没' : '部分浸入')]
+          ];
+          gg.save();
+          gg.font = '11.5px ' + FONT; gg.textBaseline = 'middle';
+          rows.forEach(function (r, i) {
+            var yy = padTop + 36 + i * 24;
+            if (yy > padTop + panelH - 8) return;
+            gg.fillStyle = '#6b7f92'; gg.textAlign = 'left';
+            gg.fillText(r[0], W - pw - padX + 12, yy);
+            gg.fillStyle = '#1a2c3c'; gg.textAlign = 'right';
+            gg.fillText(String(r[1]), W - padX - 12, yy);
+          });
           gg.restore();
 
           /* 结论条 */
           var ok = Math.abs(buoyancy() - displaced()) < 0.005;
-          gg.fillStyle = ok ? '#2fa96b' : '#6b7f92'; gg.font = '700 12.5px ' + FONT;
-          gg.textAlign = 'left'; gg.textBaseline = 'top';
+          gg.fillStyle = ok ? '#2fa96b' : '#6b7f92'; gg.font = '700 12px ' + FONT;
+          gg.textAlign = 'left'; gg.textBaseline = 'bottom';
           gg.fillText('F浮 = G − F拉 = ' + PHY.fmt(weight(), 3) + ' − ' + PHY.fmt(springRead(), 3) + ' = ' + PHY.fmt(buoyancy(), 3) +
-            ' N　　G排 = ρ液·g·V排 = ' + PHY.fmt(displaced(), 3) + ' N' + (ok ? '　⟹ F浮 = G排 ✓' : ''), 24, H - 32);
+            ' N　　G排 = ρ液·g·V排 = ' + PHY.fmt(displaced(), 3) + ' N' + (ok ? '　⟹ F浮 = G排 ✓' : ''), padX, H - 10);
           gg.restore();
         },
 

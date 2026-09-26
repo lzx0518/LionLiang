@@ -168,8 +168,14 @@
           gg.save();
           gg.fillStyle = '#f6f9fd';
           gg.fillRect(0, 0, W, H);
-          var cx = W * 0.46, cy = H * 0.44;
-          var coilW = 190, coilH = 88;
+          /* 右侧放一块读数面板（把原本空着的右半张画布用起来），左边留给螺线管与磁感线。
+             螺线管尺寸也改成跟着画布走：以前写死 coilW=190、coilH=88，
+             在 1000×660 上只占 36% 宽、49% 高，四周全是空白。 */
+          var pw = PHY.clamp(W * 0.24, 176, 250);
+          var stageW = W - pw - 40;
+          var cx = 16 + stageW / 2, cy = H * 0.36;
+          var coilW = PHY.clamp(stageW * 0.42, 140, 320);
+          var coilH = PHY.clamp(H * 0.20, 70, 150);
           var s = strength();
 
           /* 磁感线（通电时画）。半径要收在画布内：螺线管窄画布上离两边很近，
@@ -179,7 +185,7 @@
             gg.strokeStyle = 'rgba(108,127,217,' + (0.18 + Math.min(0.5, s / 8)) + ')';
             gg.lineWidth = 1.6;
             var inner = coilW * 0.55;
-            var outer = PHY.clamp(Math.min(cx - 26, env.W - cx - 26), inner, coilW * 1.7);
+            var outer = PHY.clamp(Math.min(cx - 26, W - pw - 24 - cx, H * 0.36), inner, coilW * 1.8);
             for (var k = 1; k <= 4; k++) {
               var rr2 = inner + (outer - inner) * (k / 4);
               gg.beginPath();
@@ -207,7 +213,7 @@
             gg.stroke();
           }
           /* 引线与电池、开关 */
-          var by = H * 0.76;
+          var by = H * 0.86;
           gg.strokeStyle = '#5d6f7e'; gg.lineWidth = 2;
           gg.beginPath();
           gg.moveTo(cx - coilW / 2, cy + coilH / 2);
@@ -274,6 +280,32 @@
             gg.textAlign = 'left'; gg.textBaseline = 'top';
             gg.fillText('吸起大头针 ' + n + ' 个', cx + coilW / 2 + 92, cy + 40);
           }
+
+          /* 右侧读数面板：即使开关断开（没有磁感线）也不会让右半张画布空着 */
+          var ph = Math.min(H - 28, 300);
+          PHY.panel(gg, W - pw - 8, 14, pw - 8, ph, '通电螺线管读数');
+          gg.save();
+          gg.textBaseline = 'middle';
+          var rows = [
+            ['开关', on ? '闭合' : '断开'],
+            ['电流 I', PHY.fmt(I, 1) + ' A（' + (dir === 'cw' ? '正向' : '反向') + '）'],
+            ['匝数 N', N + ' 匝'],
+            ['铁芯', core ? '已插入（被磁化）' : '未插入'],
+            ['左端磁极', on ? poles().left + ' 极' : '—'],
+            ['右端磁极', on ? poles().right + ' 极' : '—'],
+            ['磁性强弱', on ? magneticLabel() : '无磁性'],
+            ['吸起大头针', n + ' 个']
+          ];
+          gg.font = '11.5px ' + FONT;
+          rows.forEach(function (r, i) {
+            var yy = 44 + i * 24;
+            if (yy > 14 + ph - 10) return;
+            gg.fillStyle = '#6b7f92'; gg.textAlign = 'left';
+            gg.fillText(r[0], W - pw + 6, yy);
+            gg.fillStyle = '#1a2c3c'; gg.textAlign = 'right';
+            gg.fillText(String(r[1]), W - 20, yy);
+          });
+          gg.restore();
           gg.restore();
         },
 

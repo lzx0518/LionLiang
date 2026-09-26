@@ -10,7 +10,7 @@
  *  3) projectile 研究平抛运动（高中）：
  *                频闪轨迹 + 与自由落体小球对比，验证水平匀速、竖直自由落体。
  *  4) lever      探究杠杆的平衡条件（初中）：
- *                两侧挂杠码，F₁L₁ = F₂L₂，平衡时自动记录一组数据。
+ *                两侧挂钩码，F₁L₁ = F₂L₂，平衡时自动记录一组数据。
  * ========================================================================== */
 (function (root) {
   'use strict';
@@ -18,6 +18,9 @@
   var PHY = root.PHY || (root.PHY = {});
   var FONT = '-apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif';
   var G = 9.8;
+  /* 平抛仿真的量程上限：控件滑块与坐标定标必须用同一组数字，
+     否则改了滑块范围而没改定标，轨迹就会画到网格之外或飞出画布。 */
+  var PROJ_MAXV0 = 8, PROJ_MAXH = 3;
 
   function bgFill(gg, W, H) {
     var bg = gg.createLinearGradient(0, 0, 0, H);
@@ -214,20 +217,25 @@
           var pts = countingPoints();
           var out = ['<dl class="kv">'];
           out.push('<div><dt>小车质量</dt><dd>' + PHY.fmt(m, 2) + ' kg</dd></div>');
-          out.push('<div><dt>拉力（砝码重）</dt><dd>' + PHY.fmt(mh * G, 2) + ' N</dd></div>');
-          out.push('<div><dt>理论加速度</dt><dd>a = ' + PHY.fmt(a(), 2) + ' m/s²</dd></div>');
+          out.push('<div><dt>挂钩砝码重</dt><dd>' + PHY.fmt(mh * G, 2) + ' N（= m_h·g）</dd></div>');
+          /* 绳的拉力并不等于砝码重力：砝码自己也在加速，所以
+             T = m·a = m·m_h·g /(m + m_h) < m_h·g。
+             只有 m_h ≪ m 时才能近似把砝码重当作拉力——这里如实分开显示。 */
+          out.push('<div><dt>绳的拉力 T = m·a</dt><dd>' + PHY.fmt(m * a(), 2) + ' N</dd></div>');
+          out.push('<div><dt>理论加速度</dt><dd>a = m_h·g/(m + m_h) = ' + PHY.fmt(a(), 2) + ' m/s²</dd></div>');
           var am = aMeas();
-          if (am) out.push('<div><dt>纸带求加速度</dt><dd>a = Δs / T² ≈ ' + PHY.fmt(am, 2) + ' m/s²</dd></div>');
+          if (am) out.push('<div><dt>纸带求加速度</dt><dd>逐差法 a ≈ ' + PHY.fmt(am, 2) + ' m/s²</dd></div>');
           out.push('</dl>');
           if (pts.length > 1) {
             out.push('<p style="margin:8px 0 2px"><b>计数点数据（T = 0.1 s）</b></p>');
             var html = '<div class="chips">';
             pts.forEach(function (p, i) {
               var ds = i ? (p.s - pts[i - 1].s) : null;
-              html += '<span class="chip">' + (i + 1) + '# t=' + PHY.fmt(p.t, 1) + 's s=' + PHY.fmt(p.s, 3) + 'm' + (ds ? ' Δs=' + PHY.fmt(ds, 3) : '') + '</span>';
+              html += '<span class="chip">' + (i + 1) + '# t=' + PHY.fmt(p.t, 1) + 's s=' + PHY.fmt(p.s, 3) + 'm' + (ds ? ' 间隔位移=' + PHY.fmt(ds, 3) : '') + '</span>';
             });
             out.push(html + '</div>');
-            out.push('<div class="hint-box">相邻相等时间内的位移差 Δs = aT² 恒定 → 匀变速；逐差可得 a。</div>');
+            out.push('<div class="hint-box">匀变速的判断依据是<b>相邻两个间隔位移之差</b>恒定：Δs₂ − Δs₁ = Δs₃ − Δs₂ = aT²。' +
+              '注意每个间隔的位移本身是越来越大的，逐差（把位移差再取平均）才得到 a。</div>');
           }
           return out.join('');
         },
@@ -297,7 +305,7 @@
     level: 'senior',
     desc: '气垫导轨上保持质量不变改变拉力、保持拉力不变改变质量，归纳 a ∝ F、a ∝ 1/m。',
     tip: '先「测量当前 a」，改变参数后再记录，凑齐 5 组即可看出规律。',
-    note: '理想化：气垫导轨无摩擦，绳与滑轮不计质量。',
+    note: '模型说明：气垫导轨无摩擦、绳与滑轮不计质量。此时 a = m_h·g/(m + m_h)，绳的拉力 T = m·a 略小于砝码重力 m_h·g（砝码自己也在加速）。',
     controls: function (inst) {
       var p = inst.params();
       return [
@@ -319,9 +327,20 @@
       var phase = 'F';    // F | m
       var PX = 110;
       var MAXS = 0.8;
+      var targetT = 0.5;  // 「固定拉力」模式下要保住的绳张力 N
 
-      function F() { return mh * G; }
-      function a() { return F() / m; }   /* 理想化：a = F/m */
+      /* 严格模型：小车与挂钩砝码通过理想滑轮连成一体、一起加速，所以
+           a = m_h·g / (m + m_h)
+         绳的拉力（真正作用在小车上的合力）是 T = m·a，而不是砝码重 m_h·g ——
+         因为砝码自己也要被加速，绳子"分"给它的那部分力扣掉了。
+         这里如实按这个关系算，并把「拉力」定义为绳的张力 T；
+         这样 a = T / m 才是严格成立的（教材里 a = F/m 的 F 本来就是拉力，不是砝码重）。
+         同一份代码里 ticker 用的也是这个模型，两处不能各算一套。 */
+      function a() { return mh * G / (m + mh); }
+      function T() { return m * a(); }
+      function hangerWeight() { return mh * G; }
+      /* 要让绳的拉力保持在 T0，砝码该取多少：T0·(m + m_h) = m·m_h·g */
+      function hangerFor(T0, mm) { return T0 * mm / Math.max(1e-6, mm * G - T0); }
 
       function measure() {
         /* 直接由模型给出 a（相当于已经做完一次释放测量） */
@@ -330,25 +349,39 @@
       function action(id) {
         if (id === 'recF') {
           phase = 'F';
-          var pt = { F: F(), a: measure(), m: m };
-          var dup = recF.some(function (p) { return Math.abs(p.F - pt.F) < 0.01; });
+          var pt = { F: T(), a: measure(), m: m, mh: mh };
+          var dup = recF.some(function (p) { return Math.abs(p.F - pt.F) < 0.005; });
           if (dup) { PHY.toast('这一组拉力已经记录过了，换一个砝码试试。'); return; }
           recF.push(pt);
-          PHY.log('记录（m = ' + PHY.fmt(m, 2) + ' kg 固定）：F = ' + PHY.fmt(pt.F, 2) + ' N，a = ' + PHY.fmt(pt.a, 3) + ' m/s²。', '', 'reaction');
+          PHY.log('记录（m = ' + PHY.fmt(m, 2) + ' kg 固定）：绳的拉力 F = ' + PHY.fmt(pt.F, 2) +
+            ' N（砝码 ' + PHY.fmt(mh, 2) + ' kg，砝码重 ' + PHY.fmt(hangerWeight(), 2) +
+            ' N），a = ' + PHY.fmt(pt.a, 3) + ' m/s²。', '', 'reaction');
         } else if (id === 'recM') {
           phase = 'm';
-          var pt2 = { m: m, a: measure(), F: F() };
+          /* 「固定拉力」不能靠固定砝码重：砝码重一定时，绳的张力会随小车质量变化。
+             这里以第一次记录的拉力为基准，之后自动换砝码把它保住。 */
+          if (!recM.length) { targetT = T(); }
+          else { mh = PHY.clamp(hangerFor(targetT, m), 0.05, 0.5); }
+          var pt2 = { m: m, a: measure(), F: T(), mh: mh };
           var dup2 = recM.some(function (p) { return Math.abs(p.m - pt2.m) < 0.01; });
           if (dup2) { PHY.toast('这一组质量已经记录过了，换一个质量试试。'); return; }
           recM.push(pt2);
-          PHY.log('记录（F = ' + PHY.fmt(pt2.F, 2) + ' N 固定）：m = ' + PHY.fmt(m, 2) + ' kg，a = ' + PHY.fmt(pt2.a, 3) + ' m/s²。', '', 'reaction');
+          PHY.log('记录（保持绳的拉力 F = ' + PHY.fmt(pt2.F, 2) + ' N 不变）：m = ' + PHY.fmt(m, 2) +
+            ' kg（砝码已自动换成 ' + PHY.fmt(mh, 2) + ' kg），a = ' + PHY.fmt(pt2.a, 3) + ' m/s²。', '', 'reaction');
+          PHY.setControl('mh', mh);
         } else if (id === 'reset') {
           running = false; done = false; t = 0; s = 0;
         }
       }
       function set(id, v) {
-        if (id === 'm') m = v;
-        else if (id === 'mh') mh = v;
+        if (id === 'm') {
+          m = v;
+          /* 「固定拉力」模式下改质量，砝码要跟着换，拉力才保得住 */
+          if (phase === 'm' && recM.length) {
+            mh = PHY.clamp(hangerFor(targetT, m), 0.05, 0.5);
+            PHY.setControl('mh', mh);
+          }
+        } else if (id === 'mh') mh = v;
       }
       function applyPreset(p) {
         if (!p) return;
@@ -367,16 +400,20 @@
         set: set, action: action, applyPreset: applyPreset,
         update: update,
         hint: function () {
-          if (phase === 'F' && recF.length < 5) return '固定 m，改变砝码（拉力 F）→「记录一组 (F, a)」，凑齐 5 组。当前 a = ' + PHY.fmt(a(), 2) + ' m/s²';
-          if (recM.length < 5) return '固定 F，改变小车质量 m →「记录一组 (m, a)」，凑齐 5 组。当前 a = ' + PHY.fmt(a(), 2) + ' m/s²';
-          return '数据已足够：a ∝ F，a ∝ 1/m，即 a = F / m。';
+          if (phase === 'F' && recF.length < 5) return '固定 m，改变砝码 → 绳的拉力 F = m·a 跟着变，「记录一组 (F, a)」，凑齐 5 组。当前 a = ' + PHY.fmt(a(), 2) + ' m/s²';
+          if (recM.length < 5) return '固定绳的拉力 F，改变小车质量 m（砝码会自动跟着换）→「记录一组 (m, a)」，凑齐 5 组。当前 a = ' + PHY.fmt(a(), 2) + ' m/s²';
+          return '数据已足够：a ∝ F，a ∝ 1/m，即 a = F / m（F 是绳的拉力）。';
         },
         info: function () {
           var out = ['<dl class="kv">'];
-          out.push('<div><dt>当前拉力 F</dt><dd>' + PHY.fmt(F(), 2) + ' N</dd></div>');
+          out.push('<div><dt>挂钩砝码重 m_h·g</dt><dd>' + PHY.fmt(hangerWeight(), 2) + ' N</dd></div>');
+          out.push('<div><dt>绳的拉力 F = m·a</dt><dd>' + PHY.fmt(T(), 2) + ' N</dd></div>');
           out.push('<div><dt>当前质量 m</dt><dd>' + PHY.fmt(m, 2) + ' kg</dd></div>');
           out.push('<div><dt>当前加速度</dt><dd>a = ' + PHY.fmt(a(), 3) + ' m/s²</dd></div>');
           out.push('</dl>');
+          out.push('<div class="hint-box">为什么绳的拉力比砝码重小？砝码自己也在加速，' +
+            'm_h·g − T = m_h·a。于是 a = m_h·g/(m + m_h)，T = m·a = ' + PHY.fmt(T(), 2) +
+            ' N &lt; m_h·g = ' + PHY.fmt(hangerWeight(), 2) + ' N。只有 m_h ≪ m 时才近似认为两者相等。</div>');
           if (recF.length > 1) {
             var ratio = recF[0].a / recF[0].F;
             out.push('<div class="hint-box">固定 m：a / F ≈ ' + PHY.fmt(ratio, 3) + '（各组比值近似相等 → a ∝ F）</div>');
@@ -393,35 +430,82 @@
         },
         draw: function (gg, W, H) {
           bgFill(gg, W, H);
-          var y = H * 0.3;
+          /* 两张图并排、各占一半宽，导轨放在它们下面，底部再给数据留一块。
+             以前两张图都堆在右上角（左上一大片空着），导轨又只放在 H*0.3，
+             整张画布的高度只用了 41%。 */
+          var gw = PHY.clamp((W - 60) / 2, 190, 300);
+          var gh = PHY.clamp(H * 0.28, 130, 200);
+          var y = 14 + gh + 64;
           var pulleyX = W - 170;
           PX = Math.max(110, (W - 320) / MAXS);
           var cartPx = done ? MAXS : s;
-          drawTrackScene(gg, env, cartPx, y, pulleyX, 56, 'm=' + PHY.fmt(m, 2) + 'kg  F=' + PHY.fmt(F(), 2) + 'N', PX);
+          drawTrackScene(gg, env, cartPx, y, pulleyX, 56, 'm=' + PHY.fmt(m, 2) + 'kg  F=' + PHY.fmt(T(), 2) + 'N', PX);
+          /* 坐标轴上限必须覆盖实际会出现的全部数据点与那条直线：
+             拉力 F = m·a 最大不到 1 N；1/m 最大是 1/0.1 = 10（质量滑块下限 0.1 kg）。
+             以前 a–1/m 的横轴写死 5，把 m < 0.2 kg 的点全挤到了边框外面（clamp 到 1.02 贴边）。 */
+          var maxF = 0.2, maxA = 0.5, ii;
+          for (ii = 0; ii < recF.length; ii++) { if (recF[ii].F > maxF) maxF = recF[ii].F; if (recF[ii].a > maxA) maxA = recF[ii].a; }
+          for (ii = 0; ii < recM.length; ii++) { if (recM[ii].F > maxF) maxF = recM[ii].F; if (recM[ii].a > maxA) maxA = recM[ii].a; }
+          if (T() > maxF) maxF = T();
+          maxF *= 1.22;
+          var lineTop = maxF / Math.max(0.1, m);      /* a = F/m 在 x = maxF 处的高度 */
+          if (lineTop > maxA) maxA = lineTop;
+          if (a() > maxA) maxA = a();
+          maxA *= 1.15;
           /* a-F 图 */
-          var gp1 = graphPanel(gg, W - 560, 14, 260, 190, 'a–F（m 一定）', Math.max(0.5, mh * G * 1.6, 0.6), Math.max(1, a() * 1.6), 'F/N', 'a');
+          var gp1 = graphPanel(gg, 20, 14, gw, gh, 'a–F（m 一定）', maxF, maxA, 'F/N', 'a');
           recF.forEach(function (p) { gp1.dot(p.F, p.a, '#1e9fd8'); });
-          if (recF.length > 1) gp1.line(0, 0, gp1MaxF(), gp1MaxF() * (recF[0].a / recF[0].F), '#1e9fd8', true);
-          function gp1MaxF() { return Math.max(0.5, mh * G * 1.5); }
-          /* a-1/m 图 */
-          var gp2 = graphPanel(gg, W - 286, 14, 260, 190, 'a–1/m（F 一定）', Math.max(2, 1 / 0.2), Math.max(1, a() * 1.6), '1/m', 'a');
+          if (recF.length > 1) gp1.line(0, 0, maxF, maxF * (recF[0].a / recF[0].F), '#1e9fd8', true);
+          /* a-1/m 图：横轴单位是 1/kg，1/m ∈ [1, 10] */
+          var gp2 = graphPanel(gg, W - 20 - gw, 14, gw, gh, 'a–1/m（F 一定）', 10, maxA, '1/m', 'a');
           recM.forEach(function (p) { gp2.dot(1 / p.m, p.a, '#e0a13c'); });
           if (recM.length > 1) {
-            var k = recM[0].a * recM[0].m;
-            gp2.line(0.01 / 1, k * 1, 1 / 0.2, k / 0.2, '#e0a13c', true);
+            var k = recM[0].a * recM[0].m;            /* k = a·m = 绳的拉力 */
+            gp2.line(0, 0, 10, k * 10, '#e0a13c', true);
           }
-          if (recF.length >= 5 && recM.length >= 5) {
-            gg.fillStyle = '#2fa96b';
-            gg.font = '700 14px ' + FONT;
-            gg.textAlign = 'center';
-            gg.fillText('结论：a ∝ F，a ∝ 1/m  ⟹  a = F/m', W / 2, H - 24);
+
+          /* 底部：数据与结论 */
+          var bTop = y + 112, bH = H - bTop - 16;
+          if (bH > 58) {
+            PHY.panel(gg, 20, bTop, W - 40, bH, '数据记录');
+            gg.textBaseline = 'middle';
+            if (!recF.length && !recM.length) {
+              gg.fillStyle = '#6b7f92'; gg.font = '12px ' + FONT;
+              gg.textAlign = 'center';
+              gg.fillText('固定小车质量、逐个改变砝码 →「记录 (F, a)」；再保持绳的拉力不变、逐个改变质量 →「记录 (m, a)」。',
+                W / 2, bTop + bH / 2);
+            } else {
+              var lineY = bTop + 40;
+              gg.font = '11.5px ' + FONT; gg.textAlign = 'left';
+              gg.fillStyle = '#3d5a72';
+              gg.fillText('固定 m：' + (recF.map(function (p) {
+                return '(' + PHY.fmt(p.F, 2) + ' N, ' + PHY.fmt(p.a, 2) + ')';
+              }).join('　') || '（还没记录）'), 36, lineY);
+              gg.fillText('固定 F：' + (recM.map(function (p) {
+                return '(' + PHY.fmt(p.m, 2) + ' kg, ' + PHY.fmt(p.a, 2) + ')';
+              }).join('　') || '（还没记录）'), 36, lineY + 24);
+              if (recF.length > 1) {
+                gg.fillStyle = '#1e9fd8';
+                gg.fillText('a / F ≈ ' + PHY.fmt(recF[0].a / recF[0].F, 3) + ' = 1/m，各组比值相同 → a ∝ F', 36, lineY + 50);
+              }
+              if (recM.length > 1) {
+                gg.fillStyle = '#e0a13c';
+                gg.fillText('a·m ≈ ' + PHY.fmt(recM[0].a * recM[0].m, 3) + ' N，各组乘积相同 → a ∝ 1/m', 36, lineY + 72);
+              }
+            }
+            if (recF.length >= 5 && recM.length >= 5) {
+              gg.fillStyle = '#2fa96b'; gg.font = '700 13.5px ' + FONT;
+              gg.textAlign = 'center'; gg.textBaseline = 'bottom';
+              gg.fillText('结论：a ∝ F，a ∝ 1/m  ⟹  a = F/m（F 为绳的拉力）', W / 2, bTop + bH - 12);
+            }
           }
         },
         recF: function () { return recF; },
         recM: function () { return recM; },
         getA: a,
-        getF: F,
-        params: function () { return { m: m, mh: mh }; },
+        getF: T,
+        getHangerWeight: hangerWeight,
+        params: function () { return { m: m, mh: mh, T: T(), hangerW: hangerWeight(), targetT: targetT }; },
         __test: { setM: function (v) { m = v; }, setMH: function (v) { mh = v; }, recF: function () { action('recF'); }, recM: function () { action('recM'); } }
       };
     }
@@ -441,8 +525,8 @@
     controls: function (inst) {
       var p = inst.params();
       return [
-        { type: 'slider', id: 'v0', label: '初速度 v₀', min: 1, max: 8, step: 0.5, value: p.v0, unit: 'm/s' },
-        { type: 'slider', id: 'h', label: '抛出高度 h', min: 0.4, max: 3, step: 0.1, value: p.h, unit: 'm' },
+        { type: 'slider', id: 'v0', label: '初速度 v₀', min: 1, max: PROJ_MAXV0, step: 0.5, value: p.v0, unit: 'm/s' },
+        { type: 'slider', id: 'h', label: '抛出高度 h', min: 0.4, max: PROJ_MAXH, step: 0.1, value: p.h, unit: 'm' },
         { type: 'sep' },
         { type: 'button', id: 'run', label: '释放小球', primary: true },
         { type: 'button', id: 'verify', label: '验证结论' },
@@ -509,13 +593,18 @@
         if (p.h) h = p.h;
       }
 
+      /* 与控件滑块的上限保持一致（模块顶部的 PROJ_MAXV0 / PROJ_MAXH） */
+      var MAXV0 = PROJ_MAXV0, MAXH = PROJ_MAXH;
+      function maxRange() { return MAXV0 * Math.sqrt(2 * MAXH / G); }   /* ≈ 6.26 m */
+
       function geom() {
         var groundY = env.H * 0.84;
         var x0 = 80;
-        /* 比例尺要同时容得下「高度滑块的上限 3 m」和「水平射程的上限约 4 m」，
-           以前固定按 2.2 m 算，把 h 调到 3 m 时发射器会被画到画布上方（y 是负的），
-           窄画布上 4 m 的网格线还会戳出右边界。 */
-        var PX = Math.min((groundY - 92) / 3.2, (env.W - x0 - 44) / 4.2);
+        /* 比例尺要同时容得下「高度上限 3 m」和「最大射程」。
+           射程上限不是 4 m：v₀ = 8 m/s、h = 3 m 时 x = v₀√(2h/g) ≈ 6.26 m，
+           以前按 4.2 m 定标，窄画布上小球会一路飞出右边界；
+           竖直方向以前也按固定 2.2 m 算，h 调到 3 m 时发射器被画到画布上方。 */
+        var PX = Math.min((groundY - 96) / (MAXH * 1.08), (env.W - x0 - 40) / (maxRange() * 1.02));
         return { groundY: groundY, PX: PX, x0: x0 };
       }
 
@@ -550,15 +639,21 @@
           gg.fillStyle = '#8a99a8';
           gg.font = '10px ' + FONT;
           gg.lineWidth = 1;
-          for (var gx = 0; gx <= 4; gx += 0.5) {
+          /* 网格铺满整个量程：横向到最大射程（v₀、h 都取上限时的 x），
+             纵向到高度上限 3 m。以前横向只画到 4 m、纵向只到 2 m，
+             量程调大后轨迹会跑到没有刻度的空白区里。 */
+          var gxMax = Math.ceil(maxRange() * 2) / 2;
+          for (var gx = 0; gx <= gxMax + 1e-9; gx += 0.5) {
             var x = x0 + gx * PX;
+            if (x > W - 12) break;
             gg.beginPath(); gg.moveTo(x, 40); gg.lineTo(x, groundY + 8); gg.stroke();
-            if (gx % 1 === 0) { gg.textAlign = 'center'; gg.fillText(gx + 'm', x, groundY + 24); }
+            if (Math.abs(gx - Math.round(gx)) < 1e-9) { gg.textAlign = 'center'; gg.fillText(Math.round(gx) + 'm', x, groundY + 24); }
           }
-          for (var gy = 0; gy <= 2; gy += 0.5) {
+          for (var gy = 0; gy <= MAXH + 1e-9; gy += 0.5) {
             var y = groundY - gy * PX;
+            if (y < 26) break;
             gg.beginPath(); gg.moveTo(x0 - 10, y); gg.lineTo(W - 30, y); gg.stroke();
-            if (gy % 1 === 0) { gg.textAlign = 'right'; gg.fillText(gy + 'm', x0 - 14, y + 3); }
+            if (Math.abs(gy - Math.round(gy)) < 1e-9) { gg.textAlign = 'right'; gg.fillText(Math.round(gy) + 'm', x0 - 14, y + 3); }
           }
           /* 发射器 */
           var ly = groundY - h * PX;
@@ -626,13 +721,13 @@
     field: 'mech',
     icon: '⚖️',
     level: 'junior',
-    desc: '在杠杆两侧挂杠码使杠杆水平平衡，归纳 F₁L₁ = F₂L₂。',
-    tip: '点击杠杆刻度处挂杠码，点击已挂的杠码取下；平衡时自动记录数据。',
+    desc: '在杠杆两侧挂钩码使杠杆水平平衡，归纳 F₁L₁ = F₂L₂。',
+    tip: '点击杠杆刻度处挂钩码，点击已挂的钩码取下；平衡时自动记录数据。',
     controls: function (inst) {
       return [
-        { type: 'note', text: '已挂 ' + inst.hookCount() + ' 个杠码（每个 0.5 N，间距 1 格）' },
+        { type: 'note', text: '已挂 ' + inst.hookCount() + ' 个钩码（每个 0.5 N，间距 1 格）' },
         { type: 'sep' },
-        { type: 'button', id: 'reset', label: '取下全部杠码', danger: true },
+        { type: 'button', id: 'reset', label: '取下全部钩码', danger: true },
         { type: 'note', text: '左 F₁L₁ = ' + PHY.fmt(inst.torqueL(), 1) + ' N·格　右 F₂L₂ = ' + PHY.fmt(inst.torqueR(), 1) + ' N·格' }
       ];
     },
@@ -641,7 +736,7 @@
       var hooks = [];          // {side:-1|1, pos:1..6, n}
       var records = [];
       var angle = 0;           // 当前倾角（度）
-      var UNIT_G = 0.5;        // 每个杠码 0.5N（50g）
+      var UNIT_G = 0.5;        // 每个钩码 0.5N（50g）
 
       function torque(side) {
         var s = 0;
@@ -684,11 +779,11 @@
         hooks.forEach(function (h2) { if (h2.side === side && h2.pos === ap) hk = h2; });
         if (hk && hk.n > 0) {
           hk.n--;
-          PHY.log('取下一个杠码。');
+          PHY.log('取下一个钩码。');
         } else {
           if (!hk) { hk = { side: side, pos: ap, n: 0 }; hooks.push(hk); }
           hk.n++;
-          PHY.log('在' + (side < 0 ? '左' : '右') + '侧第 ' + ap + ' 格挂 1 个杠码（0.5N）。');
+          PHY.log('在' + (side < 0 ? '左' : '右') + '侧第 ' + ap + ' 格挂 1 个钩码（0.5N）。');
         }
         recordIfBalanced();
       }
@@ -699,7 +794,7 @@
         return { cx: cx, y: y, unit: unit };
       }
       function action(id) {
-        if (id === 'reset') { hooks = []; angle = 0; PHY.log('已取下全部杠码。'); }
+        if (id === 'reset') { hooks = []; angle = 0; PHY.log('已取下全部钩码。'); }
       }
       function applyPreset() { }
 
@@ -766,7 +861,7 @@
           /* 支点 */
           gg.beginPath(); gg.arc(0, 0, 6, 0, 7);
           gg.fillStyle = '#37414c'; gg.fill();
-          /* 杠码（挂在旋转后的位置，竖直向下） */
+          /* 钩码（挂在旋转后的位置，竖直向下） */
           hooks.forEach(function (hk) {
             if (!hk.n) return;
             var hx = hk.side * hk.pos * unit;
@@ -786,7 +881,7 @@
           gg.fillStyle = '#3d5a72';
           gg.font = '12px ' + FONT;
           gg.textAlign = 'center';
-          gg.fillText('点击刻度处挂钩码 / 取下杠码　每个杠码 G = 0.5 N', cx, H - 22);
+          gg.fillText('点击刻度处挂钩码 / 取下钩码　每个钩码 G = 0.5 N', cx, H - 22);
           gg.fillText('左侧 F₁L₁ = ' + PHY.fmt(torque(-1), 1) + ' N·格　　右侧 F₂L₂ = ' + PHY.fmt(torque(1), 1) + ' N·格', cx, H - 44);
         },
         balanced: balanced,

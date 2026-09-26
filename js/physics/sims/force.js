@@ -394,8 +394,10 @@
           gg.save();
           gg.fillStyle = '#f6f9fd';
           gg.fillRect(0, 0, W, H);
-          var trackX = 40, trackW = Math.min(W - 60, 620);
-          var trackY = H * 0.52, trackH = 26;
+          /* 导轨铺满宽度（以前封顶 620 px，1000 px 宽的画布只用了 64%），
+             下半张画布留给数据面板，别让整个装置挤在上面。 */
+          var trackX = 40, trackW = W - 60;
+          var trackY = H * 0.50, trackH = 26;
           drawSurface(gg, trackX, trackY, trackW, trackH);
 
           /* 木块（平放 / 侧放） */
@@ -440,11 +442,38 @@
             gg.fillText('匀速', scaleX + 82, hookY - 14);
           }
 
-          /* 结论条 */
+          /* 底部数据面板：把下半张画布用起来，记录与结论放在同一处 */
+          var bTop = trackY + 54, bH = H - bTop - 14;
+          if (bH > 56) {
+            PHY.panel(gg, 24, bTop, W - 48, bH, '数据记录');
+            gg.textBaseline = 'middle'; gg.textAlign = 'left';
+            if (!records.length) {
+              gg.fillStyle = '#6b7f92'; gg.font = '12px ' + FONT;
+              gg.textAlign = 'center';
+              gg.fillText('选好接触面与砝码个数，点「匀速拉动」再「记录一组」；换接触面、换压力、换放置方式各做几次。',
+                W / 2, bTop + bH / 2);
+            } else {
+              gg.font = '11.5px ' + FONT;
+              gg.fillStyle = '#3d5a72';
+              gg.fillText('接触面　放置　砝码 → 压力 N、滑动摩擦力 f', 40, bTop + 38);
+              records.slice(0, 6).forEach(function (r, i) {
+                gg.fillStyle = '#6b7f92';
+                gg.fillText((i + 1) + '. ' + SURFACES[r.surface].name + '　' +
+                  (r.pose === 'flat' ? '平放' : '侧放') + '　' + r.nw + ' 个（' + r.nw * 100 + ' g）　→　N = ' +
+                  PHY.fmt(r.N, 2) + ' N，f = ' + PHY.fmt(r.f, 2) + ' N', 40, bTop + 60 + i * 20);
+              });
+              if (bH > 150) {
+                gg.fillStyle = '#2fa96b'; gg.font = '700 12.5px ' + FONT;
+                gg.fillText('接触面越粗糙、压力越大 → 滑动摩擦力越大；接触面积（平放 / 侧放）不影响 f。',
+                  40, bTop + bH - 16);
+              }
+            }
+          }
+          /* 当前读数条 */
           gg.fillStyle = '#3d5a72'; gg.font = '600 12px ' + FONT;
           gg.textAlign = 'left'; gg.textBaseline = 'top';
           gg.fillText('f = μ·N = ' + SURFACES[surface].mu + ' × ' + PHY.fmt(normal(), 2) + ' = ' + PHY.fmt(friction(), 2) + ' N' +
-            (pose === 'side' ? '　（侧放：接触面积变小，f 不变）' : ''), 24, H - 32);
+            (pose === 'side' ? '　（侧放：接触面积变小，f 不变）' : ''), 24, trackY + 34);
           gg.restore();
         },
 

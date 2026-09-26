@@ -443,6 +443,117 @@ section('鼠标交互（有拖拽的仿真，指针扫格）');
   rows.forEach(r => console.log(r));
 }
 
+/* ===================== 3.7 构图比例（形状范围版） =====================
+   原来那个坐标桩只记录"锚点"：arc / ellipse 只记圆心、不记半径，
+   所以「圆心在画布内、整个圆却画到外面去」根本测不出来，
+   也看不出「内容只占了画布一角、大半张是空的」——正是这两类问题让物理仿真
+   出现了"图的比例不对"。这里换一个记录**形状实际范围**的桩：
+     · arc / ellipse 带上半径（受当前 scale 影响）
+     · 文本按当前字体算出宽高，并按 textAlign / textBaseline 修正
+     · 覆盖画布绝大部分的 fillRect 视为背景，不计入内容
+   然后同时检查：内容落在画布内（更严）＋ 内容用足了画布（占宽 / 占高）。 */
+function extentCtx(W, H) {
+  const stack = [];
+  let st = { tx: 0, ty: 0, sx: 1, sy: 1, rot: false, font: '12px sans' };
+  const marks = [];
+  let ops = 0, bg = 0;
+  const fontSize = () => { const m = /(\d+(?:\.\d+)?)px/.exec(String(st.font)); return m ? Number(m[1]) : 12; };
+  const add = (label, x, y, w, h) => {
+    if (![x, y, w, h].every(Number.isFinite)) { marks.push({ label, bad: true, x: NaN, y: NaN, w: 0, h: 0 }); return; }
+    if (st.rot) return;                        /* 旋转变换下坐标无法直接还原 */
+    marks.push({ label, x: x * st.sx + st.tx, y: y * st.sy + st.ty, w: w * Math.abs(st.sx), h: h * Math.abs(st.sy) });
+  };
+  return new Proxy({}, {
+    get(t, key) {
+      if (key === '__marks') return marks;
+      if (key === '__ops') return ops;
+      if (key === '__bg') return bg;
+      if (key === 'measureText') return (s) => ({ width: String(s).length * fontSize() * 0.62 });
+      if (key === 'createLinearGradient' || key === 'createRadialGradient' || key === 'createConicGradient') return () => ({ addColorStop() { } });
+      if (key in t) return t[key];
+      const m = String(key);
+      return function (...a) {
+        ops++;
+        switch (m) {
+          case 'save': stack.push({ ...st }); break;
+          case 'restore': if (stack.length) st = stack.pop(); break;
+          case 'translate': st.tx += a[0] * st.sx; st.ty += a[1] * st.sy; break;
+          case 'scale': st.sx *= a[0]; st.sy *= a[1]; break;
+          case 'setTransform': case 'transform': st = { tx: a[4] || 0, ty: a[5] || 0, sx: a[0] || 1, sy: a[3] || 1, rot: false, font: st.font }; break;
+          case 'rotate': if (a[0]) st.rot = true; break;
+          case 'arc': add('arc(r=' + a[2].toFixed(1) + ')', a[0] - a[2], a[1] - a[2], a[2] * 2, a[2] * 2); break;
+          case 'ellipse': add('ellipse', a[0] - a[2], a[1] - a[3], a[2] * 2, a[3] * 2); break;
+          case 'fillText': case 'strokeText': {
+            const fs2 = fontSize(), w = String(a[0]).length * fs2 * 0.62;
+            const ox = t.textAlign === 'center' ? -w / 2 : (t.textAlign === 'right' ? -w : 0);
+            const oy = t.textBaseline === 'top' ? 0 : (t.textBaseline === 'middle' ? -fs2 / 2 : -fs2);
+            add('text', a[1] + ox, a[2] + oy, w, fs2 * 1.2);
+            break;
+          }
+          case 'fillRect': case 'strokeRect': case 'rect': case 'clearRect': {
+            if (Math.abs(a[2] * a[3]) > W * H * 0.85 && Math.abs(a[0]) < 4 && Math.abs(a[1]) < 4) { bg++; break; }
+            add(m, a[0], a[1], a[2], a[3]);
+            break;
+          }
+          case 'arcTo': add('arcTo', Math.min(a[0], a[2]), Math.min(a[1], a[3]), Math.abs(a[2] - a[0]), Math.abs(a[3] - a[1])); break;
+          case 'moveTo': case 'lineTo': add(m, a[0], a[1], 0, 0); break;
+          case 'quadraticCurveTo': add(m, a[2], a[3], 0, 0); break;
+          case 'bezierCurveTo': add(m, a[4], a[5], 0, 0); break;
+          default: break;
+        }
+        return undefined;
+      };
+    },
+    set(t, k, v) { if (k === 'font') st.font = v; t[k] = v; return true; }
+  });
+}
+
+section('构图比例（内容要落在画布内、并且用足画布）');
+{
+  const MIN_W = 50, MIN_H = 50;       /* 内容包围盒至少要占画布的百分比 */
+  let worstW = { v: 100, id: '—' }, worstH = { v: 100, id: '—' };
+  for (const [cw, ch] of [[1000, 660], [620, 460]]) {
+    for (const def of PHY.SIMS) {
+      CHEM.level = 'all';
+      let inst;
+      try {
+        inst = def.create({
+          get W() { return cw; }, get H() { return ch; }, level: function () { return 'all'; },
+          toast() { }, log() { }, setControls() { }, invalidateInfo() { }
+        });
+      } catch (e) { continue; }
+      const ctx = extentCtx(cw, ch);
+      try {
+        for (let i = 0; i < 12; i++) inst.update(0.05);
+        inst.draw(ctx, cw, ch);
+      } catch (e) {
+        ok(false, def.id + '@' + cw + ' 绘制失败（构图检查）', e.message);
+        continue;
+      }
+      const nan = ctx.__marks.filter(m => m.bad);
+      ok(nan.length === 0, def.id + '@' + cw + '×' + ch + ' 没有非有限坐标的形状', nan.length + ' 个');
+      const ms = ctx.__marks.filter(m => !m.bad);
+      if (!ms.length) { ok(false, def.id + '@' + cw + '×' + ch + ' 没画出任何内容'); continue; }
+      const x0 = Math.min(...ms.map(m => m.x));
+      const x1 = Math.max(...ms.map(m => m.x + m.w));
+      const y0 = Math.min(...ms.map(m => m.y));
+      const y1 = Math.max(...ms.map(m => m.y + m.h));
+      const slack = 34;
+      ok(x0 >= -slack && x1 <= cw + slack && y0 >= -slack && y1 <= ch + slack,
+        def.id + '@' + cw + '×' + ch + ' 的形状范围（含半径 / 文字宽高）在画布内',
+        'x[' + x0.toFixed(0) + ',' + x1.toFixed(0) + '] y[' + y0.toFixed(0) + ',' + y1.toFixed(0) + ']');
+      const fw = (x1 - x0) / cw * 100, fh = (y1 - y0) / ch * 100;
+      ok(fw >= MIN_W, def.id + '@' + cw + '×' + ch + ' 横向用足画布（≥' + MIN_W + '%）', fw.toFixed(0) + '%');
+      ok(fh >= MIN_H, def.id + '@' + cw + '×' + ch + ' 纵向用足画布（≥' + MIN_H + '%）', fh.toFixed(0) + '%');
+      if (fw < worstW.v) worstW = { v: fw, id: def.id + '@' + cw };
+      if (fh < worstH.v) worstH = { v: fh, id: def.id + '@' + cw };
+      if (inst.destroy) inst.destroy();
+    }
+  }
+  console.log('   最低横向占比 ' + worstW.v.toFixed(0) + '%（' + worstW.id + '）　最低纵向占比 ' +
+    worstH.v.toFixed(0) + '%（' + worstH.id + '）');
+}
+
 /* ===================== 4. 实验任务注册 ===================== */
 section('实验任务注册');
 const seenTask = new Set();

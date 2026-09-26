@@ -72,13 +72,17 @@
 
       function M() { return MEDIA[medium] || MEDIA.air; }
       function speed() { return M().v; }
-      /* 能不能把声音传到对面：既要有介质，罩内也不能接近真空 */
-      function canTransmit() { return M().ok && vacuum < 0.95; }
+      /* 真空罩只对「空气」这一档有意义：把罩里的空气抽走，声音就传不出去。
+         但如果介质换成了钢铁、水这类固体 / 液体，抽走空气根本不影响它们传声——
+         以前不加这个限定，选「钢铁」再把真空度拉满会显示"听不到"，是错的。 */
+      function vacuumApplies() { return medium === 'air'; }
+      function canTransmit() { return M().ok && (!vacuumApplies() || vacuum < 0.95); }
       function wavelengthCM() { return speed() ? speed() / freq * 100 : 0; }
       /* 接收端听到的响度：振幅 × 真空衰减 × 距离衰减（固定 3 m） */
       function loudness() {
         if (!canTransmit()) return 0;
-        return amp * (1 - vacuum) / (1 + 3 / 8);
+        var vac = vacuumApplies() ? vacuum : 0;
+        return amp * (1 - vac) / (1 + 3 / 8);
       }
       function loudLabel() {
         var L = loudness();
@@ -121,9 +125,17 @@
           medium = v;
           rings = [];
           PHY.log('把传播介质换成「' + M().name + '」' + (M().ok ? '，声速 ' + speed() + ' m/s。' : '：真空不能传声。'), '', M().ok ? 'info' : 'warn');
+          if (vacuum >= 0.95 && medium !== 'air') {
+            PHY.log('注意：罩里抽的是空气，而声波现在是在' + M().name + '中传播——固体、液体传声不受罩内空气多少影响。', '', 'info');
+          }
         } else if (id === 'vacuum') {
           vacuum = PHY.clamp(v / 100, 0, 1);
-          if (vacuum >= 0.95) PHY.log('罩内空气几乎被抽空：振动仍在，但听不到声音了——声音的传播需要介质。', '', 'warn');
+          if (vacuum >= 0.95) {
+            PHY.log(medium === 'air'
+              ? '罩内空气几乎被抽空：振动仍在，但听不到声音了——声音的传播需要介质。'
+              : '罩内空气已抽空，但声音是靠' + M().name + '传过来的，所以照样能听到。',
+              '', 'warn');
+          }
         }
         env.invalidateInfo();
       }

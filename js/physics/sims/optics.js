@@ -394,16 +394,29 @@
       var drag = false;
       var dwell = {};
       var tirTime = 0;
-      var P = { x: 0, y: 0 }, cx, cy, bw, bh, rPx;
+      var P = { x: 0, y: 0 }, cx, cy, bw, bh, rPx, padR = 0;
 
       function geom() {
-        cx = env.W / 2;
-        cy = env.H * 0.52;
-        bw = Math.min(300, env.W * 0.32);
-        bh = Math.min(190, env.H * 0.34);
-        rPx = Math.min(env.W * 0.3, 150);
+        /* 画布够宽就在右侧放一块数据面板（记录表 + 结论）——以前光路只占 30% 宽度，
+           右边七成画布全是空的。窄画布上不放面板，让光路自己铺开。 */
+        padR = env.W >= 880 ? PHY.clamp(env.W * 0.25, 210, 262) : 0;
+        var stageX = 16, stageW = env.W - padR - stageX * 2;
+        cx = stageX + stageW / 2;
+        cy = env.H * 0.54;
+        bw = PHY.clamp(stageW * 0.66, 150, 460);
+        bh = PHY.clamp(env.H * 0.32, 100, 250);
         P.x = cx;
         P.y = mode === 'air2glass' ? cy - bh / 2 : cy + bh / 2;
+        /* 光线长度按当前 θ 分别夹住三个约束，以前固定 150 px 所以画不满：
+             · 垂直方向不能顶出画布（受"入射侧到画布边缘"的空间限制）
+             · 水平方向不能戳出左右边界
+             · 玻璃里的折射光线要留在玻璃砖内部 */
+        var s = Math.max(0.22, Math.abs(Math.sin(theta * RAD)));
+        var cz = Math.max(0.25, Math.abs(Math.cos(theta * RAD)));
+        var roomV = (mode === 'air2glass' ? (P.y - 22) : (env.H - P.y - 22)) / cz;
+        var roomH = (stageW / 2 - 18) / s;
+        var roomGlass = bh / 0.92;
+        rPx = PHY.clamp(Math.min(roomV, roomH, roomGlass), 60, 520);
       }
 
       function critical() {
@@ -601,6 +614,46 @@
           gg.font = '700 13px ' + FONT;
           gg.textAlign = 'center';
           gg.fillText('⚠ 全反射：θ₁ > 临界角 ' + PHY.fmt(critical(), 1) + '°，折射光完全消失', cx, P.y + (down ? -1 : 1) * 60);
+        }
+
+        /* 右侧数据面板：记录表 + 结论（把原本空着的右半张画布用起来） */
+        if (padR > 0) {
+          var px0 = W - padR - 2, pw2 = padR - 16;
+          var pH2 = Math.min(H - 28, 306);
+          PHY.panel(gg, px0, 14, pw2, pH2, '折射率测量');
+          gg.save();
+          gg.textBaseline = 'middle'; gg.textAlign = 'left';
+          if (!records.length) {
+            gg.fillStyle = '#6b7f92'; gg.font = '11.5px ' + FONT;
+            gg.fillText('切到「空气 → 玻璃」，改变入射角后点', px0 + 12, 48);
+            gg.fillText('「记录一组数据」，这里会算出 n。', px0 + 12, 68);
+          } else {
+            gg.fillStyle = '#3d5a72'; gg.font = '600 11px ' + FONT;
+            gg.fillText('θ₁', px0 + 12, 44);
+            gg.fillText('θ₂', px0 + 58, 44);
+            gg.fillText('n = sinθ₁/sinθ₂', px0 + 100, 44);
+            gg.font = '11.5px ' + FONT;
+            records.slice(0, 9).forEach(function (r, i) {
+              var yy = 66 + i * 20;
+              gg.fillStyle = '#6b7f92';
+              gg.fillText(PHY.fmt(r.t1, 0) + '°', px0 + 12, yy);
+              gg.fillText(PHY.fmt(r.t2, 1) + '°', px0 + 58, yy);
+              gg.fillStyle = '#1a2c3c';
+              gg.fillText(PHY.fmt(r.nEst, 2), px0 + 100, yy);
+            });
+            if (records.length > 9) {
+              gg.fillStyle = '#8a99a8';
+              gg.fillText('…共 ' + records.length + ' 组', px0 + 12, 66 + 9 * 20);
+            }
+          }
+          var cyy = 14 + pH2 - 54;
+          gg.fillStyle = '#3d5a72'; gg.font = '600 12px ' + FONT;
+          gg.fillText('临界角 C = arcsin(1/n) = ' + PHY.fmt(critical(), 1) + '°', px0 + 12, cyy);
+          if (records.length) {
+            gg.fillStyle = '#2fa96b'; gg.font = '700 13.5px ' + FONT;
+            gg.fillText('平均值 n̄ = ' + PHY.fmt(meanN(), 3), px0 + 12, cyy + 24);
+          }
+          gg.restore();
         }
         gg.restore();
       }

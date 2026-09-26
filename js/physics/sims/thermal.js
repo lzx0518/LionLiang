@@ -126,7 +126,7 @@
         return { phase: 'dry', T: Tb, label: '水已烧干', frac: 1 };
       }
 
-      var flag = { melt: false, boil: false, liquid: false, dry: false };
+      var flag = { melt: false, boil: false, liquid: false, dry: false, iceDone: false };
 
       function update(dt) {
         flash += dt;
@@ -156,7 +156,15 @@
           if (st.phase === 'dry' && !flag.dry) {
             flag.dry = true;
             heating = false;
-            PHY.log('水全部汽化完，温度会继续上升（此时不再有液体）。', '', 'warn');
+            PHY.log('水全部汽化完，烧杯里不再有液体，本次实验结束。', '', 'warn');
+          }
+          /* 冰熔化完之后水的温度上限是 30 ℃（图像纵轴就到这）。到了上限必须停掉加热：
+             否则温度被 Math.min 截住、曲线会多出一段"平台"——而在温度—时间图像里
+             平台的含义是"正在发生物态变化"，凭空多一条平台会让学生误读。 */
+          if (mode === 'ice' && st.phase === 'liquid' && st.T >= 29.9 && !flag.iceDone) {
+            flag.iceDone = true;
+            heating = false;
+            PHY.log('水温升到 30 ℃，本次「冰的熔化」实验到此结束（熔化平台在 0 ℃）。', '', 'info');
           }
         }
       }
@@ -322,9 +330,12 @@
           gg.save();
           gg.fillStyle = '#f6f9fd';
           gg.fillRect(0, 0, W, H);
-          var sw = Math.min(260, W * 0.28);
-          drawSetup(gg, 16, 14, sw, Math.min(H - 28, 330));
-          drawGraph(gg, sw + 30, 14, W - sw - 46, Math.min(H - 28, 330));
+          /* 两块面板都撑满画布高度：以前写死 Math.min(H - 28, 330)，
+             660 px 高的画布只用了 50%，下面一大片空白，
+             温度—时间图像的纵轴也被压得很短。 */
+          var sw = PHY.clamp(W * 0.26, 150, 260);
+          drawSetup(gg, 16, 14, sw, H - 28);
+          drawGraph(gg, sw + 30, 14, W - sw - 46, H - 28);
           gg.restore();
         },
 
